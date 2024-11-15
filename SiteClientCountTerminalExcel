@@ -3,17 +3,16 @@ This script is designed to interact with the Mist API to retrieve data about sit
 APIs Used: /api/v1/orgs/{org_id}/sites:
 Twitter @jamiegprice      https://jamiegprice.substack.com/    CWNE #510 
 """
-
 import requests
 import json
-import pandas as pd  # Import pandas
+import pandas as pd
 from datetime import datetime
 
 # Function to read the API key from the 'MyKey.txt' text file
 def get_api_key(filename):
     try:
         with open(filename, 'r') as file:
-            return file.read().strip()  # Strip any extraneous whitespace or newline characters
+            return file.read().strip()
     except FileNotFoundError:
         print(f"Error: The file '{filename}' was not found.")
         exit()
@@ -27,8 +26,7 @@ def get_client_count(site_id, api_key):
     response = requests.get(url, headers=headers)
     
     if response.status_code == 200:
-        client_count = response.json()  # Parse the JSON response
-        return json.dumps(client_count, indent=4)  # Format and return the JSON response
+        return response.json()  # Parse the JSON response
     else:
         print(f"Error fetching client count for site {site_id}: {response.status_code}")
         return None
@@ -85,15 +83,16 @@ if response.status_code == 200:
     # Ask the user to choose a site
     site_choice = input("\nFor all sites, please hit <Enter>. For one site, please enter the index number of the site: ")
     
+    grand_total = 0  # Initialize the grand total
+
     if site_choice.strip() == "":
-        print("Counting clients for all sites...")
-        total_sites = 0  # Initialize a counter for total sites
+        print("\nCounting clients for all sites...")
         for site in site_data_sorted:
-            total_sites += 1  # Increment the counter
             client_count = get_client_count(site['site_id'], api_key)
             if client_count is not None:
-                print(f"Site: {site['site_name']} - Client Count: {client_count}")
-        print(f"\nComplete Count: {total_sites} sites")
+                total = client_count.get('total', 0)  # Extract the 'total' field
+                grand_total += total
+                print(f"Site: {site['site_name']} - Client Count: {total}")
     else:
         try:
             site_choice = int(site_choice)
@@ -101,14 +100,32 @@ if response.status_code == 200:
                 site = site_data_sorted[site_choice - 1]
                 client_count = get_client_count(site['site_id'], api_key)
                 if client_count is not None:
-                    print(f"\nSite: {site['site_name']} - Client Count (JSON):\n{client_count}")
+                    total = client_count.get('total', 0)
+                    grand_total += total
+                    print(f"\nSite: {site['site_name']} - Client Count: {total}")
             else:
                 print("Invalid index number.")
         except ValueError:
             print("Invalid input. Please enter a valid index number.")
 
-    # Convert the site data to a DataFrame, placing site_name first
+    # Display the grand total count
+    print(f"\nTotal count with all sites: {grand_total}")
+
+    # Convert the site data to a DataFrame
     df = pd.DataFrame(site_data_sorted)
+
+    # Create a DataFrame for the grand total row
+    grand_total_df = pd.DataFrame([{
+        "site_name": "Grand Total",
+        "site_id": "",
+        "site_type": "",
+        "created_at": "",
+        "updated_at": "",
+        "total": grand_total
+    }])
+
+    # Concatenate the original DataFrame with the grand total DataFrame
+    df = pd.concat([df, grand_total_df], ignore_index=True)
 
     # Get current date and time for filename
     current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -117,7 +134,7 @@ if response.status_code == 200:
     # Write the DataFrame to an Excel file
     df.to_excel(filename, index=False)
 
-    print(f"\nSite data has been saved to {filename}")
+    print(f"\nSite data and grand total have been saved to {filename}")
 
 else:
     print(f"Error: {response.status_code} - {response.text}")
