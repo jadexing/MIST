@@ -1,0 +1,123 @@
+"""
+This script is designed to interact with the Mist API to retrieve data about sites and their associated client counts based on unique hostnames.
+APIs Used: /api/v1/orgs/{org_id}/sites:
+Twitter @jamiegprice      https://jamiegprice.substack.com/    CWNE #510 
+"""
+
+import requests
+import json
+import pandas as pd  # Import pandas
+from datetime import datetime
+
+# Function to read the API key from the 'MyKey.txt' text file
+def get_api_key(filename):
+    try:
+        with open(filename, 'r') as file:
+            return file.read().strip()  # Strip any extraneous whitespace or newline characters
+    except FileNotFoundError:
+        print(f"Error: The file '{filename}' was not found.")
+        exit()
+
+# Function to get the client count for a selected site
+def get_client_count(site_id, api_key):
+    url = f"https://api.mist.com/api/v1/sites/{site_id}/clients/count?distinct=hostname"
+    headers = {
+        "Authorization": f"Token {api_key}"
+    }
+    response = requests.get(url, headers=headers)
+    
+    if response.status_code == 200:
+        client_count = response.json()  # Parse the JSON response
+        return json.dumps(client_count, indent=4)  # Format and return the JSON response
+    else:
+        print(f"Error fetching client count for site {site_id}: {response.status_code}")
+        return None
+
+# Read Org ID from the 'Org.txt' file
+try:
+    with open('Org.txt', 'r') as file:
+        org_id = file.read().strip()
+except FileNotFoundError:
+    print(f"Error: The file 'Org.txt' was not found.")
+    exit()
+
+# Define the API URL for the specific organization sites
+url = f"https://api.mist.com/api/v1/orgs/{org_id}/sites"
+
+# Set the headers with the API key from the 'MyKey.txt' file
+api_key = get_api_key('MyKey.txt')
+headers = {
+    "Authorization": f"Token {api_key}"
+}
+
+# Send the GET request to the Mist API
+response = requests.get(url, headers=headers)
+
+# Check if the request was successful
+if response.status_code == 200:
+    print("Successfully retrieved site data.")
+    
+    # Parse the response data
+    response_data = response.json()
+
+    # Create a list to hold site data
+    site_data = []
+
+    if isinstance(response_data, list):
+        for site in response_data:
+            site_info = {
+                "site_name": site.get('name', ''),
+                "site_id": site.get('id', ''),
+                "site_type": site.get('type', ''),
+                "created_at": site.get('created_at', ''),
+                "updated_at": site.get('updated_at', '')
+            }
+            site_data.append(site_info)
+
+    # Sort the site data by site_name
+    site_data_sorted = sorted(site_data, key=lambda x: x['site_name'])
+
+    # Display the site_name and site_id in alphabetical order with index number
+    print("\nSites (Sorted by name):")
+    for index, site in enumerate(site_data_sorted, start=1):
+        print(f"{index}. Site Name: {site['site_name']}, Site ID: {site['site_id']}")
+
+    # Ask the user to choose a site
+    site_choice = input("\nFor all sites, please hit <Enter>. For one site, please enter the index number of the site: ")
+    
+    if site_choice.strip() == "":
+        print("Counting clients for all sites...")
+        total_sites = 0  # Initialize a counter for total sites
+        for site in site_data_sorted:
+            total_sites += 1  # Increment the counter
+            client_count = get_client_count(site['site_id'], api_key)
+            if client_count is not None:
+                print(f"Site: {site['site_name']} - Client Count: {client_count}")
+        print(f"\nComplete Count: {total_sites} sites")
+    else:
+        try:
+            site_choice = int(site_choice)
+            if 1 <= site_choice <= len(site_data_sorted):
+                site = site_data_sorted[site_choice - 1]
+                client_count = get_client_count(site['site_id'], api_key)
+                if client_count is not None:
+                    print(f"\nSite: {site['site_name']} - Client Count (JSON):\n{client_count}")
+            else:
+                print("Invalid index number.")
+        except ValueError:
+            print("Invalid input. Please enter a valid index number.")
+
+    # Convert the site data to a DataFrame, placing site_name first
+    df = pd.DataFrame(site_data_sorted)
+
+    # Get current date and time for filename
+    current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    filename = f"MistSiteID_{current_time}.xlsx"
+
+    # Write the DataFrame to an Excel file
+    df.to_excel(filename, index=False)
+
+    print(f"\nSite data has been saved to {filename}")
+
+else:
+    print(f"Error: {response.status_code} - {response.text}")
