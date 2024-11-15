@@ -1,0 +1,86 @@
+"""
+API Used in the Code: GET /api/v1/orgs/{org_id}/sites:
+This API is used to retrieve the list of sites for a specific organization in the Mist system.
+Authorization: The API call requires an authorization header containing an API token.
+
+Code Summary:
+The provided Python code uses the Mist API to retrieve a list of sites for a specific organization 
+and display the site names and IDs in alphabetical order. 
+"""
+
+import requests
+import pandas as pd
+from datetime import datetime
+
+# Function to read the API key from the 'MyKey.txt' text file
+def get_api_key(filename):
+    try:
+        with open(filename, 'r') as file:
+            return file.read().strip()  # Strip any extraneous whitespace or newline characters
+    except FileNotFoundError:
+        print(f"Error: The file '{filename}' was not found.")
+        exit()
+
+# Read Org ID from the 'Org.txt' file
+try:
+    with open('Org.txt', 'r') as file:
+        org_id = file.read().strip()
+except FileNotFoundError:
+    print(f"Error: The file 'Org.txt' was not found.")
+    exit()
+
+# Define the API URL for the specific organization sites
+url = f"https://api.mist.com/api/v1/orgs/{org_id}/sites"
+
+# Set the headers with the API key from the 'MyKey.txt' file
+api_key = get_api_key('MyKey.txt')
+headers = {
+    "Authorization": f"Token {api_key}"
+}
+
+# Send the GET request to the Mist API
+response = requests.get(url, headers=headers)
+
+# Check if the request was successful
+if response.status_code == 200:
+    print("Successfully retrieved site data.")
+    
+    # Parse the response data
+    response_data = response.json()
+
+    # Create a list to hold site data
+    site_data = []
+
+    if isinstance(response_data, list):
+        for site in response_data:
+            site_info = {
+                "site_name": site.get('name', ''),
+                "site_id": site.get('id', ''),
+                "site_type": site.get('type', ''),
+                "created_at": site.get('created_at', ''),
+                "updated_at": site.get('updated_at', '')
+            }
+            site_data.append(site_info)
+
+    # Sort the site data by site_name
+    site_data_sorted = sorted(site_data, key=lambda x: x['site_name'])
+
+    # Display the site_name and site_id in alphabetical order with index number
+    print("\nSites (Sorted by name):")
+    for index, site in enumerate(site_data_sorted, start=1):
+        print(f"{index}. Site Name: {site['site_name']}, Site ID: {site['site_id']}")
+
+    # Convert the site data to a DataFrame, placing site_name first
+    df = pd.DataFrame(site_data_sorted)
+
+    # Get current date and time for filename
+    current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    filename = f"MistSiteID_{current_time}.xlsx"
+
+    # Write the DataFrame to an Excel file
+    df.to_excel(filename, index=False)
+
+    print(f"\nSite data has been saved to {filename}")
+
+else:
+    print(f"Error: {response.status_code} - {response.text}")
