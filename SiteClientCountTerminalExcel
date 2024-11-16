@@ -3,6 +3,11 @@ This script is designed to interact with the Mist API to retrieve data about sit
 APIs Used: /api/v1/orgs/{org_id}/sites:
 Twitter @jamiegprice      https://jamiegprice.substack.com/    CWNE #510 
 """
+"""
+This script is designed to interact with the Mist API to retrieve data about sites and their associated client counts based on unique hostnames.
+APIs Used: /api/v1/orgs/{org_id}/sites:
+Twitter @jamiegprice      https://jamiegprice.substack.com/    CWNE #510 
+"""
 import requests
 import json
 import pandas as pd
@@ -85,6 +90,9 @@ if response.status_code == 200:
     
     grand_total = 0  # Initialize the grand total
 
+    # Initialize a list to hold the data for the DataFrame
+    site_data_for_df = []
+
     if site_choice.strip() == "":
         print("\nCounting clients for all sites...")
         for site in site_data_sorted:
@@ -92,6 +100,11 @@ if response.status_code == 200:
             if client_count is not None:
                 total = client_count.get('total', 0)  # Extract the 'total' field
                 grand_total += total
+                site_data_for_df.append({
+                    "site_name": site['site_name'],
+                    "site_id": site['site_id'],
+                    "client_count": total
+                })
                 print(f"Site: {site['site_name']} - Client Count: {total}")
     else:
         try:
@@ -102,6 +115,11 @@ if response.status_code == 200:
                 if client_count is not None:
                     total = client_count.get('total', 0)
                     grand_total += total
+                    site_data_for_df.append({
+                        "site_name": site['site_name'],
+                        "site_id": site['site_id'],
+                        "client_count": total
+                    })
                     print(f"\nSite: {site['site_name']} - Client Count: {total}")
             else:
                 print("Invalid index number.")
@@ -112,16 +130,13 @@ if response.status_code == 200:
     print(f"\nTotal count with all sites: {grand_total}")
 
     # Convert the site data to a DataFrame
-    df = pd.DataFrame(site_data_sorted)
+    df = pd.DataFrame(site_data_for_df)
 
     # Create a DataFrame for the grand total row
     grand_total_df = pd.DataFrame([{
         "site_name": "Grand Total",
         "site_id": "",
-        "site_type": "",
-        "created_at": "",
-        "updated_at": "",
-        "total": grand_total
+        "client_count": grand_total
     }])
 
     # Concatenate the original DataFrame with the grand total DataFrame
