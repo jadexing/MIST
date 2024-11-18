@@ -1,3 +1,30 @@
+"""
+This script is designed to interact with the Mist API to retrieve data about sites and their associated client counts based on unique hostnames.
+APIs Used: /api/v1/orgs/{org_id}/sites:
+
+Key Features:
+Date Range Filter: Allows the user to specify a date range to collect data.
+API Data Collection: Retrieves data from Mist's API for site and client counts.
+Excel Reporting: Saves results to an Excel file, including a new sheet with each run and a "Grand Total" row.
+User Interaction: Prompts the user for site selection and date range, with the option to choose all sites or one site.
+API Used:
+The script uses the Mist API, specifically the following endpoints:
+
+Retrieve Site Data:
+
+GET /api/v1/orgs/{org_id}/sites:
+Retrieves a list of all sites in a specified organization, including the site's name, ID, type, and timestamps for creation and last update.
+Retrieve Client Count for a Site:
+
+GET /api/v1/sites/{site_id}/clients/count?distinct=hostname:
+Retrieves the total number of distinct clients (based on hostnames) connected to a specified site. The distinct=hostname parameter ensures that each client is counted only once per site, even if they reconnect multiple times.
+
+
+Twitter @jamiegprice      https://jamiegprice.substack.com/    CWNE #510 
+
+Appends with tab to filename: MistUniqueClientCount
+"""
+
 import requests
 import json
 import pandas as pd
