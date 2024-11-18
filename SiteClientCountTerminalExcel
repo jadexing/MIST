@@ -2,12 +2,9 @@
 This script is designed to interact with the Mist API to retrieve data about sites and their associated client counts based on unique hostnames.
 APIs Used: /api/v1/orgs/{org_id}/sites:
 Twitter @jamiegprice      https://jamiegprice.substack.com/    CWNE #510 
+This give live data.
 """
-"""
-This script is designed to interact with the Mist API to retrieve data about sites and their associated client counts based on unique hostnames.
-APIs Used: /api/v1/orgs/{org_id}/sites:
-Twitter @jamiegprice      https://jamiegprice.substack.com/    CWNE #510 
-"""
+
 import requests
 import json
 import pandas as pd
