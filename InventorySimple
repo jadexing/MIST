@@ -1,0 +1,148 @@
+import requests
+import csv
+import time
+from datetime import datetime
+
+def read_file(filename):
+    with open(filename, "r") as f:
+        return f.read().strip()
+
+def get_sites(base_url, org_id, headers):
+
+    sites = []
+    page = 1
+
+    print("Retrieving sites...")
+
+    while True:
+
+        url = f"{base_url}/orgs/{org_id}/sites"
+        params = {"limit": 100, "page": page}
+
+        r = requests.get(url, headers=headers, params=params)
+
+        if r.status_code != 200:
+            print("Error retrieving sites:", r.text)
+            return []
+
+        data = r.json()
+
+        if not data:
+            break
+
+        sites.extend(data)
+        page += 1
+
+    print(f"Found {len(sites)} sites\n")
+
+    return sites
+
+
+def get_devices(base_url, site_id, headers):
+
+    devices = []
+    page = 1
+
+    while True:
+
+        url = f"{base_url}/sites/{site_id}/devices"
+        params = {"limit": 100, "page": page}
+
+        r = requests.get(url, headers=headers, params=params)
+
+        if r.status_code != 200:
+            print("Device retrieval error:", r.text)
+            break
+
+        data = r.json()
+
+        if not data:
+            break
+
+        devices.extend(data)
+        page += 1
+
+    return devices
+
+
+def main():
+
+    start_time = time.time()
+
+    BASE_URL = read_file("Base.txt")
+    API_KEY = read_file("MyKey.txt")
+    ORG_ID = read_file("Org.txt")
+
+    headers = {
+        "Authorization": f"Token {API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    sites = get_sites(BASE_URL, ORG_ID, headers)
+
+    results = []
+
+    total_sites = len(sites)
+    current = 1
+
+    for site in sites:
+
+        site_name = site["name"]
+        site_id = site["id"]
+
+        print(f"[{current}/{total_sites}] Processing site: {site_name}")
+
+        devices = get_devices(BASE_URL, site_id, headers)
+
+        ap_counts = {}
+
+        for device in devices:
+
+            if device.get("type") == "ap":
+
+                model = device.get("model", "Unknown")
+
+                if model not in ap_counts:
+                    ap_counts[model] = 0
+
+                ap_counts[model] += 1
+
+        if not ap_counts:
+            results.append({
+                "Site": site_name,
+                "AP Model": "None",
+                "Count": 0
+            })
+        else:
+            for model, count in ap_counts.items():
+                results.append({
+                    "Site": site_name,
+                    "AP Model": model,
+                    "Count": count
+                })
+
+        current += 1
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"mist_ap_inventory_{timestamp}.csv"
+
+    with open(filename, "w", newline="") as csvfile:
+
+        fieldnames = ["Site", "AP Model", "Count"]
+
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+
+        writer.writeheader()
+
+        for row in results:
+            writer.writerow(row)
+
+    runtime = round(time.time() - start_time, 2)
+
+    print("\nInventory export complete")
+    print("File created:", filename)
+    print("Runtime:", runtime, "seconds")
+
+
+if __name__ == "__main__":
+    main()
