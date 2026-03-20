@@ -1,163 +1,209 @@
 """
-Required Definition Files
-This script requires three configuration files, all located in the same directory as the script:
---Base.txt
+APIs Called
 
-Contains the Mist API base URL
-Example: https://api.mist.com/api/v1
+Get Sites
 
---MyKey.txt
-Contains the Mist API token (org‑scoped)
+GET /api/v1/orgs/{org_id}/sites
 
---Org.txt
-Contains the Mist Organization ID
+
+Retrieves all sites in the organization
+Used to build a lookup of site ID → site name
+
+
+Get Organization Inventory (Paginated)
+
+GET /api/v1/orgs/{org_id}/inventory
+  ?limit=100
+  &page=n
+
+
+Retrieves all devices across the organization (APs, switches, gateways, etc.)
+Uses pagination to collect the full inventory
+
+Summary
+This script performs a read‑only, organization‑wide inventory export from the Mist AC2 cloud. It retrieves all sites, then pulls the full device inventory at the org level, maps devices to their respective sites, and aggregates device counts by model per site. The results are written to a timestamped CSV that includes per‑site totals and overall organization totals, making the output suitable for inventory tracking, audits, and hardware lifecycle planning.
+
 """
 
 import requests
 import csv
-import time
+import os
+from collections import defaultdict
 from datetime import datetime
+import time
+
+BASE_URL = "https://api.ac2.mist.com/api/v1"
+
 
 def read_file(filename):
-    with open(filename, "r") as f:
-        return f.read().strip()
 
-def get_sites(base_url, org_id, headers):
+    if os.path.exists(filename):
+        with open(filename, "r") as f:
+            return f.read().strip()
 
-    sites = []
-    page = 1
-
-    print("Retrieving sites...")
-
-    while True:
-
-        url = f"{base_url}/orgs/{org_id}/sites"
-        params = {"limit": 100, "page": page}
-
-        r = requests.get(url, headers=headers, params=params)
-
-        if r.status_code != 200:
-            print("Error retrieving sites:", r.text)
-            return []
-
-        data = r.json()
-
-        if not data:
-            break
-
-        sites.extend(data)
-        page += 1
-
-    print(f"Found {len(sites)} sites\n")
-
-    return sites
+    return None
 
 
-def get_devices(base_url, site_id, headers):
+print("\nMist Full Inventory Export\n")
 
-    devices = []
-    page = 1
+token = read_file("MyKey.txt")
+org_id = read_file("Org.txt")
 
-    while True:
+if not token:
+    token = input("Enter Mist API Token: ").strip()
 
-        url = f"{base_url}/sites/{site_id}/devices"
-        params = {"limit": 100, "page": page}
+if not org_id:
+    org_id = input("Enter Org ID: ").strip()
 
-        r = requests.get(url, headers=headers, params=params)
+headers = {
+    "Authorization": f"Token {token}",
+    "Content-Type": "application/json"
+}
 
-        if r.status_code != 200:
-            print("Device retrieval error:", r.text)
-            break
+start_time = time.time()
 
-        data = r.json()
+# -------------------------
+# GET SITES
+# -------------------------
 
-        if not data:
-            break
+print("Retrieving sites...")
 
-        devices.extend(data)
-        page += 1
+sites_url = f"{BASE_URL}/orgs/{org_id}/sites"
 
-    return devices
+response = requests.get(sites_url, headers=headers)
 
+if response.status_code != 200:
+    print("Error retrieving sites:")
+    print(response.text)
+    exit()
 
-def main():
+sites = response.json()
 
-    start_time = time.time()
+if not isinstance(sites, list):
+    print("Unexpected response retrieving sites:")
+    print(sites)
+    exit()
 
-    BASE_URL = read_file("Base.txt")
-    API_KEY = read_file("MyKey.txt")
-    ORG_ID = read_file("Org.txt")
+site_lookup = {}
 
-    headers = {
-        "Authorization": f"Token {API_KEY}",
-        "Content-Type": "application/json"
-    }
+for site in sites:
+    site_lookup[site["id"]] = site["name"]
 
-    sites = get_sites(BASE_URL, ORG_ID, headers)
+print(f"Found {len(site_lookup)} sites")
 
-    results = []
+# -------------------------
+# GET INVENTORY (Paginated)
+# -------------------------
 
-    total_sites = len(sites)
-    current = 1
+print("\nRetrieving organization inventory...")
 
-    for site in sites:
+inventory = []
+page = 1
 
-        site_name = site["name"]
-        site_id = site["id"]
+while True:
 
-        print(f"[{current}/{total_sites}] Processing site: {site_name}")
+    url = f"{BASE_URL}/orgs/{org_id}/inventory?limit=100&page={page}"
 
-        devices = get_devices(BASE_URL, site_id, headers)
+    response = requests.get(url, headers=headers)
 
-        ap_counts = {}
+    if response.status_code != 200:
+        print("Error retrieving inventory:")
+        print(response.text)
+        exit()
 
-        for device in devices:
+    data = response.json()
 
-            if device.get("type") == "ap":
+    if not data:
+        break
 
-                model = device.get("model", "Unknown")
+    inventory.extend(data)
 
-                if model not in ap_counts:
-                    ap_counts[model] = 0
+    print(f"Retrieved page {page} ({len(data)} devices)")
 
-                ap_counts[model] += 1
+    page += 1
 
-        if not ap_counts:
-            results.append({
-                "Site": site_name,
-                "AP Model": "None",
-                "Count": 0
-            })
-        else:
-            for model, count in ap_counts.items():
-                results.append({
-                    "Site": site_name,
-                    "AP Model": model,
-                    "Count": count
-                })
+print(f"\nTotal devices retrieved: {len(inventory)}")
 
-        current += 1
+# -------------------------
+# PROCESS DATA
+# -------------------------
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"mist_ap_inventory_{timestamp}.csv"
+site_model_counts = defaultdict(lambda: defaultdict(int))
+models = set()
 
-    with open(filename, "w", newline="") as csvfile:
+print("\nProcessing devices...")
 
-        fieldnames = ["Site", "AP Model", "Count"]
+for device in inventory:
 
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+    model = device.get("model", "Unknown")
+    site_id = device.get("site_id")
 
-        writer.writeheader()
+    if site_id in site_lookup:
+        site_name = site_lookup[site_id]
+    else:
+        site_name = "Unassigned"
 
-        for row in results:
-            writer.writerow(row)
+    site_model_counts[site_name][model] += 1
+    models.add(model)
 
-    runtime = round(time.time() - start_time, 2)
+models = sorted(models)
 
-    print("\nInventory export complete")
-    print("File created:", filename)
-    print("Runtime:", runtime, "seconds")
+print(f"Unique models found: {len(models)}")
 
+# -------------------------
+# CREATE CSV
+# -------------------------
 
-if __name__ == "__main__":
-    main()
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+filename = f"MistInventory_{timestamp}.csv"
+
+print(f"\nWriting CSV: {filename}")
+
+column_totals = defaultdict(int)
+
+with open(filename, "w", newline="") as f:
+
+    writer = csv.writer(f)
+
+    header = ["Site"] + models + ["Total"]
+    writer.writerow(header)
+
+    for site in sorted(site_model_counts):
+
+        row = [site]
+        row_total = 0
+
+        for model in models:
+
+            count = site_model_counts[site].get(model, 0)
+
+            row.append(count)
+            row_total += count
+            column_totals[model] += count
+
+        row.append(row_total)
+
+        writer.writerow(row)
+
+    total_row = ["TOTAL"]
+    grand_total = 0
+
+    for model in models:
+
+        total = column_totals[model]
+        total_row.append(total)
+        grand_total += total
+
+    total_row.append(grand_total)
+
+    writer.writerow(total_row)
+
+# -------------------------
+# FINISH
+# -------------------------
+
+runtime = round(time.time() - start_time, 2)
+
+print("\nExport Complete")
+print(f"Runtime: {runtime} seconds")
+print(f"CSV created: {filename}\n")
