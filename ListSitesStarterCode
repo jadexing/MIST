@@ -1,86 +1,105 @@
 """
-API Used in the Code: GET /api/v1/orgs/{org_id}/sites:
-This API is used to retrieve the list of sites for a specific organization in the Mist system.
-Authorization: The API call requires an authorization header containing an API token.
+Here’s a **condensed, executive‑ready version** that does exactly what you asked: states the **three required definition files**, lists the **API(s) called**, then provides a short summary.
 
-Code Summary:
-The provided Python code uses the Mist API to retrieve a list of sites for a specific organization 
-and display the site names and IDs in alphabetical order. 
+***
+
+## Required Definition Files
+
+This script requires **three configuration files**, all located in the same directory as the script:
+
+1.  **Base.txt**
+    *   Contains the Mist API base URL
+    *   Example: `https://api.mist.com/api/v1`
+
+2.  **MyKey.txt**
+    *   Contains the Mist **API token** (org‑scoped)
+
+3.  **Org.txt**
+    *   Contains the **Mist Organization ID**
+
+***
+
+## APIs Called
+
+*   **GET `/api/v1/orgs/{org_id}/sites`**
+    *   Retrieves all sites for the specified organization
+    *   Uses pagination (`limit=100`, `page=n`) to return the full site list
+
+***
+
+## Summary
+
+This script performs a **read‑only query** against the Mist API to retrieve and display all sites within a specified organization. It forces IPv4 to avoid DNS or VPN‑related issues, reads required configuration values from local files, authenticates using a Mist API token, and iterates through paginated results. The output is a simple list of site names and IDs, making the script suitable for validation, inventory, or as a foundation for additional Mist automation.
 """
 
+
+import socket
 import requests
-import pandas as pd
-from datetime import datetime
+import os
 
-# Function to read the API key from the 'MyKey.txt' text file
-def get_api_key(filename):
+# ====== DNS workaround (forces IPv4) ======
+old_getaddrinfo = socket.getaddrinfo
+def getaddrinfo_ipv4(host, port, *args, **kwargs):
+    return [info for info in old_getaddrinfo(host, port, *args, **kwargs) if info[0] == socket.AF_INET]
+socket.getaddrinfo = getaddrinfo_ipv4
+
+# ====== CONFIG FILES ======
+BASE_FILE = "Base.txt"   # Should contain e.g., https://api-ac2.mist.com/api/v1
+KEY_FILE = "MyKey.txt"   # Your superuser API token
+ORG_FILE = "Org.txt"     # Your Org ID
+# ==========================================
+
+def read_file(filename):
+    if not os.path.exists(filename):
+        raise Exception(f"{filename} not found in the script folder.")
+    with open(filename, "r") as f:
+        return f.read().strip()
+
+def get_sites(base_url, org_id, headers):
+    print(f"Retrieving sites for org {org_id} at {base_url} ...")
+    sites = []
+    page = 1
+    while True:
+        url = f"{base_url}/orgs/{org_id}/sites?limit=100&page={page}"
+        try:
+            r = requests.get(url, headers=headers, timeout=10)
+            r.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            print("HTTP error:", e)
+            return []
+        except requests.exceptions.RequestException as e:
+            print("Request error:", e)
+            return []
+        
+        data = r.json()
+        if not data:
+            break
+        sites.extend(data)
+        page += 1
+    return sites
+
+def main():
     try:
-        with open(filename, 'r') as file:
-            return file.read().strip()  # Strip any extraneous whitespace or newline characters
-    except FileNotFoundError:
-        print(f"Error: The file '{filename}' was not found.")
-        exit()
+        BASE_URL = read_file(BASE_FILE)
+        API_KEY = read_file(KEY_FILE)
+        ORG_ID = read_file(ORG_FILE)
+    except Exception as e:
+        print("Error reading config files:", e)
+        return
 
-# Read Org ID from the 'Org.txt' file
-try:
-    with open('Org.txt', 'r') as file:
-        org_id = file.read().strip()
-except FileNotFoundError:
-    print(f"Error: The file 'Org.txt' was not found.")
-    exit()
+    HEADERS = {
+        "Authorization": f"Token {API_KEY}",
+        "Content-Type": "application/json"
+    }
 
-# Define the API URL for the specific organization sites
-url = f"https://api.mist.com/api/v1/orgs/{org_id}/sites"
+    sites = get_sites(BASE_URL, ORG_ID, HEADERS)
+    if not sites:
+        print("No sites found or there was an error retrieving sites.")
+        return
 
-# Set the headers with the API key from the 'MyKey.txt' file
-api_key = get_api_key('MyKey.txt')
-headers = {
-    "Authorization": f"Token {api_key}"
-}
+    print(f"\nFound {len(sites)} site(s):\n")
+    for site in sites:
+        print(f"- {site.get('name', 'Unknown')} (ID: {site.get('id', 'Unknown')})")
 
-# Send the GET request to the Mist API
-response = requests.get(url, headers=headers)
-
-# Check if the request was successful
-if response.status_code == 200:
-    print("Successfully retrieved site data.")
-    
-    # Parse the response data
-    response_data = response.json()
-
-    # Create a list to hold site data
-    site_data = []
-
-    if isinstance(response_data, list):
-        for site in response_data:
-            site_info = {
-                "site_name": site.get('name', ''),
-                "site_id": site.get('id', ''),
-                "site_type": site.get('type', ''),
-                "created_at": site.get('created_at', ''),
-                "updated_at": site.get('updated_at', '')
-            }
-            site_data.append(site_info)
-
-    # Sort the site data by site_name
-    site_data_sorted = sorted(site_data, key=lambda x: x['site_name'])
-
-    # Display the site_name and site_id in alphabetical order with index number
-    print("\nSites (Sorted by name):")
-    for index, site in enumerate(site_data_sorted, start=1):
-        print(f"{index}. Site Name: {site['site_name']}, Site ID: {site['site_id']}")
-
-    # Convert the site data to a DataFrame, placing site_name first
-    df = pd.DataFrame(site_data_sorted)
-
-    # Get current date and time for filename
-    current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    filename = f"MistSiteID_{current_time}.xlsx"
-
-    # Write the DataFrame to an Excel file
-    df.to_excel(filename, index=False)
-
-    print(f"\nSite data has been saved to {filename}")
-
-else:
-    print(f"Error: {response.status_code} - {response.text}")
+if __name__ == "__main__":
+    main()
