@@ -1,0 +1,195 @@
+"""
+APs only. Nicer Format.
+
+### Summary
+
+This script uses the **Mist API** to build a **site‑by‑site wireless access point inventory** and export it to a **timestamped CSV file**.
+
+It:
+
+*   Reads the **API base URL**, **API token**, and **Org ID** from local text files
+*   Retrieves **all sites** in the organization (with pagination)
+*   For each site, retrieves **all devices**
+*   Filters for **access points only**
+*   Counts APs **by model per site**
+*   Generates a CSV report showing:
+    *   AP model counts per site
+    *   Per‑site totals
+    *   Organization‑wide totals by model and overall
+*   Prints progress and runtime to the console
+
+**End result:** a clean, audit‑ready CSV inventory of AP models by site for the entire Mist organization.
+
+
+"""
+
+
+import requests
+import csv
+import time
+from datetime import datetime
+
+def read_file(filename):
+    with open(filename, "r") as f:
+        return f.read().strip()
+
+
+def get_sites(base_url, org_id, headers):
+
+    sites = []
+    page = 1
+
+    print("Retrieving sites...")
+
+    while True:
+
+        url = f"{base_url}/orgs/{org_id}/sites"
+        params = {"limit": 100, "page": page}
+
+        r = requests.get(url, headers=headers, params=params)
+
+        if r.status_code != 200:
+            print("Error retrieving sites:", r.text)
+            return []
+
+        data = r.json()
+
+        if not data:
+            break
+
+        sites.extend(data)
+        page += 1
+
+    print(f"Found {len(sites)} sites\n")
+
+    return sites
+
+
+def get_devices(base_url, site_id, headers):
+
+    devices = []
+    page = 1
+
+    while True:
+
+        url = f"{base_url}/sites/{site_id}/devices"
+        params = {"limit": 100, "page": page}
+
+        r = requests.get(url, headers=headers, params=params)
+
+        if r.status_code != 200:
+            print("Device retrieval error:", r.text)
+            break
+
+        data = r.json()
+
+        if not data:
+            break
+
+        devices.extend(data)
+        page += 1
+
+    return devices
+
+
+def main():
+
+    start_time = time.time()
+
+    BASE_URL = read_file("Base.txt")
+    API_KEY = read_file("MyKey.txt")
+    ORG_ID = read_file("Org.txt")
+
+    headers = {
+        "Authorization": f"Token {API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    sites = get_sites(BASE_URL, ORG_ID, headers)
+
+    site_inventory = {}
+    all_models = set()
+
+    total_sites = len(sites)
+
+    for index, site in enumerate(sites, start=1):
+
+        site_name = site["name"]
+        site_id = site["id"]
+
+        print(f"[{index}/{total_sites}] Processing site: {site_name}")
+
+        devices = get_devices(BASE_URL, site_id, headers)
+
+        model_counts = {}
+
+        for device in devices:
+
+            if device.get("type") == "ap":
+
+                model = device.get("model", "Unknown")
+
+                all_models.add(model)
+
+                if model not in model_counts:
+                    model_counts[model] = 0
+
+                model_counts[model] += 1
+
+        site_inventory[site_name] = model_counts
+
+    models = sorted(list(all_models))
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"mist_inventory_{timestamp}.csv"
+
+    print("\nBuilding CSV report...")
+
+    with open(filename, "w", newline="") as csvfile:
+
+        writer = csv.writer(csvfile)
+
+        header = ["Site"] + models + ["Total"]
+        writer.writerow(header)
+
+        grand_totals = {model: 0 for model in models}
+        overall_total = 0
+
+        for site_name in sorted(site_inventory.keys()):
+
+            row = [site_name]
+            site_total = 0
+
+            for model in models:
+
+                count = site_inventory[site_name].get(model, 0)
+
+                row.append(count)
+
+                site_total += count
+                grand_totals[model] += count
+
+            row.append(site_total)
+
+            overall_total += site_total
+
+            writer.writerow(row)
+
+        total_row = ["Total"]
+
+        for model in models:
+            total_row.append(grand_totals[model])
+
+        total_row.append(overall_total)
+
+        writer.writerow(total_row)
+
+    runtime = round(time.time() - start_time, 2)
+
+    print("\nInventory export complete")
+    print("File created:", filename)
+    print("Runtime:", runtime, "seconds")
+
+
+if __name__ == "__main__":
+    main()
