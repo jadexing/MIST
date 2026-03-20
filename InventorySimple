@@ -1,3 +1,18 @@
+"""
+Required Definition Files
+This script requires three configuration files, all located in the same directory as the script:
+--Base.txt
+
+Contains the Mist API base URL
+Example: https://api.mist.com/api/v1
+
+--MyKey.txt
+Contains the Mist API token (org‑scoped)
+
+--Org.txt
+Contains the Mist Organization ID
+"""
+
 import requests
 import csv
 import time
