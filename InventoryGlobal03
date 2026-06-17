@@ -4,37 +4,40 @@ import time
 from datetime import datetime
 from collections import defaultdict
 
+
 # Mist Global 03 (ac2) API endpoint
 BASE_URL = "https://api.ac2.mist.com/api/v1"
 
 
-# --- Load API key safely ---
-def get_api_key(filename):
-    try:
-        with open(filename, 'r') as file:
-            key = file.read().strip()  # removes whitespace/newlines
-            if not key:
-                raise ValueError("API key file is empty.")
-            return key
-    except FileNotFoundError:
-        print(f"Error: The file '{filename}' was not found.")
+# --- Prompt for API key (paste-friendly) ---
+def get_api_key():
+
+    print("\nPaste your Mist API key and press Enter:")
+    api_key = input().strip()
+
+    if not api_key:
+        print("Error: API key cannot be empty.")
         exit()
-    except ValueError as ve:
-        print(f"Error: {ve}")
-        exit()
+
+    return api_key
 
 
 # --- Load Org ID safely ---
 def get_org_id(filename):
+
     try:
         with open(filename, 'r') as file:
             org_id = file.read().strip()
+
             if not org_id:
                 raise ValueError("Org ID file is empty.")
+
             return org_id
+
     except FileNotFoundError:
         print(f"Error: The file '{filename}' was not found.")
         exit()
+
     except ValueError as ve:
         print(f"Error: {ve}")
         exit()
@@ -42,9 +45,11 @@ def get_org_id(filename):
 
 # --- Test API connectivity ---
 def test_api(headers):
+
     url = f"{BASE_URL}/self"
 
     response = requests.get(url, headers=headers)
+
     response.raise_for_status()
 
     return response.json()
@@ -52,17 +57,25 @@ def test_api(headers):
 
 # --- Generic paginated GET function ---
 def paginated_get(url, headers):
+
     results = []
+
     limit = 100
     page = 1
 
     while True:
+
         params = {
             "limit": limit,
             "page": page
         }
 
-        response = requests.get(url, headers=headers, params=params)
+        response = requests.get(
+            url,
+            headers=headers,
+            params=params
+        )
+
         response.raise_for_status()
 
         data = response.json()
@@ -80,24 +93,31 @@ def paginated_get(url, headers):
     return results
 
 
-# --- Get all sites for the org ---
+# --- Get all sites for org ---
 def get_sites(org_id, headers):
+
     url = f"{BASE_URL}/orgs/{org_id}/sites"
+
     return paginated_get(url, headers)
 
 
-# --- Get all devices (APs) for a site ---
+# --- Get all devices for site ---
 def get_devices(site_id, headers):
+
     url = f"{BASE_URL}/sites/{site_id}/devices"
+
     return paginated_get(url, headers)
 
 
 # --- Count AP models ---
 def count_models(devices):
+
     models = defaultdict(int)
 
     for device in devices:
+
         model = device.get("model", "Unknown")
+
         models[model] += 1
 
     return models
@@ -108,8 +128,8 @@ def main():
 
     start_time = time.time()
 
-    # --- Load credentials ---
-    api_key = get_api_key("MyKey.txt")
+    # --- Credentials ---
+    api_key = get_api_key()
     org_id = get_org_id("Org.txt")
 
     headers = {
@@ -117,14 +137,13 @@ def main():
         "Content-Type": "application/json"
     }
 
-
-    # --- Verify API connection ---
+    # --- Test API ---
     print("\nTesting Mist API connection...")
 
     try:
         self_info = test_api(headers)
-        print(f"Connected to Mist API successfully.")
-        print(f"User: {self_info.get('email', 'Unknown')}")
+        print("API authentication successful.")
+        print(f"Logged in as: {self_info.get('email', 'Unknown')}")
 
     except requests.exceptions.HTTPError as e:
         print(f"API authentication failed: {e}")
@@ -134,34 +153,26 @@ def main():
         print(f"API connection error: {e}")
         return
 
-
-    # --- Retrieve sites ---
+    # --- Get sites ---
     print("\nRetrieving sites...")
 
     try:
         sites = get_sites(org_id, headers)
 
-    except requests.exceptions.HTTPError as e:
-        print(f"HTTP Error: {e}")
-        return
-
     except requests.exceptions.RequestException as e:
-        print(f"Request Error: {e}")
+        print(f"Unable to retrieve sites: {e}")
         return
-
 
     if not sites:
-        print("No sites found for this organization.")
+        print("No sites found.")
         return
-
 
     results = []
     org_model_totals = defaultdict(int)
 
     total_sites = len(sites)
 
-
-    # --- Process each site ---
+    # --- Process sites ---
     for index, site in enumerate(sites, start=1):
 
         site_name = site.get("name", "Unknown Site")
@@ -169,19 +180,15 @@ def main():
 
         print(f"[{index}/{total_sites}] Checking site: {site_name}")
 
-
         try:
             devices = get_devices(site_id, headers)
 
         except requests.exceptions.RequestException as e:
-            print(f"  Skipping site {site_name} due to error: {e}")
+            print(f"  Skipping {site_name}: {e}")
             continue
 
-
         model_counts = count_models(devices)
-
         site_total = sum(model_counts.values())
-
 
         for model, count in sorted(model_counts.items()):
 
@@ -194,49 +201,32 @@ def main():
 
             org_model_totals[model] += count
 
-
-
-    # --- Export CSV with timestamp ---
+    # --- Export CSV ---
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
     filename = f"MistAPInventory_{timestamp}.csv"
-
 
     with open(filename, "w", newline="") as csvfile:
 
-        fieldnames = [
-            "Site",
-            "Model",
-            "Count",
-            "Site Total APs"
-        ]
+        fieldnames = ["Site", "Model", "Count", "Site Total APs"]
 
-        writer = csv.DictWriter(
-            csvfile,
-            fieldnames=fieldnames
-        )
-
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
 
         for row in results:
             writer.writerow(row)
 
-
-
-    # --- Display totals ---
+    # --- Totals ---
     print("\n--- Organization Model Totals ---")
 
     for model, total in sorted(org_model_totals.items()):
         print(f"{model}: {total}")
 
-
     runtime = round(time.time() - start_time, 2)
-
 
     print(f"\nCSV Exported: {filename}")
     print(f"Total Runtime: {runtime} seconds")
 
 
-# --- Run script ---
+# --- Run ---
 if __name__ == "__main__":
     main()
